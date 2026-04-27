@@ -15,9 +15,9 @@ RUN apk add --no-cache \
     findutils \
     curl
 
-# duf отсутствует в Alpine-репозитории — устанавливаем из GitHub Releases.
-# Неизвестная или неподдерживаемая архитектура не ломает сборку: слой завершается успехом
-# даже без duf (|| true в конце), остальные утилиты продолжают работать.
+# duf отсутствует в Alpine-репозитории — устанавливаем свежий .apk прямо из GitHub Releases.
+# Версия определяется динамически через API: всегда ставится последний релиз.
+# Неизвестная архитектура или сбой загрузки не ломают сборку (|| true в конце).
 RUN ARCH=$(uname -m) \
     && case "$ARCH" in \
         x86_64)    DUF_ARCH="amd64"  ;; \
@@ -30,7 +30,9 @@ RUN ARCH=$(uname -m) \
     && if [ -z "$DUF_ARCH" ]; then \
         echo "⚠ duf: архитектура $ARCH не поддерживается — пропуск" ; \
     else \
-        DUF_VERSION="0.9.1" \
+        DUF_VERSION=$(curl -fsSL https://api.github.com/repos/muesli/duf/releases/latest \
+            | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/') \
+        && echo "Последняя версия duf: $DUF_VERSION" \
         && DUF_FILE="duf_${DUF_VERSION}_linux_${DUF_ARCH}.apk" \
         && DUF_URL="https://github.com/muesli/duf/releases/download/v${DUF_VERSION}/${DUF_FILE}" \
         && echo "Загрузка duf ($ARCH → $DUF_ARCH): $DUF_URL" \

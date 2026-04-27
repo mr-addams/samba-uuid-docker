@@ -28,7 +28,8 @@ devices_found=0
 for dev in /dev/sd* /dev/nvme* /dev/vd* /dev/mmcblk*; do
     [ -b "$dev" ] 2>/dev/null || continue
     devices_found=$((devices_found + 1))
-    uuid=$(blkid -s UUID -o value "$dev" 2>/dev/null)
+    # || true: blkid возвращает 2 для устройств без UUID; set -e убил бы скрипт без этого
+    uuid=$(blkid -s UUID -o value "$dev" 2>/dev/null) || true
     if [ -n "$uuid" ]; then
         # ln -sf идемпотентен: перезаписывает существующий симлинк
         ln -sf "$dev" "/dev/disk/by-uuid/$uuid"
@@ -134,7 +135,7 @@ check_and_mount() {
 
     # Определяем тип ФС — не хардкодим ext4
     local fs_type
-    fs_type=$(blkid -s TYPE -o value "$dev" 2>/dev/null)
+    fs_type=$(blkid -s TYPE -o value "$dev" 2>/dev/null) || true
     if [ -z "$fs_type" ]; then
         log_error "Не удалось определить тип файловой системы для $dev"
         return 1

@@ -344,7 +344,8 @@ After applying either fix, Windows will connect to guest shares normally.
 | `e2fsck` | ext2/3/4 filesystem check and repair |
 | `blkid` | Filesystem type and UUID detection |
 | `findmnt` | Mount detection (guards against double-mount) |
-| `duf` | Disk usage overview |
+| `duf` | Disk usage overview (per-device summary) |
+| `gdu` | Interactive disk usage analyzer (drill-down by directory) |
 | `htop`, `btop` | Process and resource monitoring |
 | `mc` | Midnight Commander file manager |
 
@@ -690,6 +691,7 @@ Restart-Service LanmanWorkstation -Force
 | `e2fsck` | Проверка и ремонт ext2/3/4 |
 | `blkid` | Определение типа ФС и UUID |
 | `findmnt` | Проверка монтирования (защита от двойного mount) |
-| `duf` | Обзор использования дисков |
+| `duf` | Обзор использования дисков (сводка по устройствам) |
+| `gdu` | Интерактивный анализатор использования диска (drill-down по директориям) |
 | `htop`, `btop` | Мониторинг процессов и ресурсов |
 | `mc` | Файловый менеджер Midnight Commander |

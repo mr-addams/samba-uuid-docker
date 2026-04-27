@@ -44,6 +44,36 @@ RUN ARCH=$(uname -m) \
         && echo "✓ duf установлен" ; \
     fi || echo "⚠ duf: установка не удалась — пропуск"
 
+# gdu — интерактивный анализатор использования диска, Go-бинарник из GitHub Releases.
+# Alpine использует musl libc — нужна статически слинкованная сборка.
+# Для amd64 релиз явно помечен суффиксом _static; остальные арки кросс-компилируются
+# без CGO и по умолчанию статически слинкованы.
+RUN ARCH=$(uname -m) \
+    && case "$ARCH" in \
+        x86_64)    GDU_ARCH="amd64_static" ;; \
+        aarch64)   GDU_ARCH="arm64"        ;; \
+        armv7l)    GDU_ARCH="armv7l"       ;; \
+        armv6l)    GDU_ARCH="armv6l"       ;; \
+        i686|i386) GDU_ARCH="386"          ;; \
+        *)         GDU_ARCH=""              ;; \
+    esac \
+    && if [ -z "$GDU_ARCH" ]; then \
+        echo "⚠ gdu: архитектура $ARCH не поддерживается — пропуск" ; \
+    else \
+        GDU_VERSION=$(curl -fsSL https://api.github.com/repos/dundee/gdu/releases/latest \
+            | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/') \
+        && echo "Последняя версия gdu: $GDU_VERSION" \
+        && GDU_FILE="gdu_linux_${GDU_ARCH}.tgz" \
+        && GDU_URL="https://github.com/dundee/gdu/releases/download/v${GDU_VERSION}/${GDU_FILE}" \
+        && echo "Загрузка gdu ($ARCH → $GDU_ARCH): $GDU_URL" \
+        && curl -fL -o "/tmp/${GDU_FILE}" "${GDU_URL}" \
+        && tar xzf "/tmp/${GDU_FILE}" -C /tmp "gdu_linux_${GDU_ARCH}" \
+        && install -m 755 "/tmp/gdu_linux_${GDU_ARCH}" /usr/local/bin/gdu \
+        && rm -f "/tmp/${GDU_FILE}" "/tmp/gdu_linux_${GDU_ARCH}" \
+        && gdu --version \
+        && echo "✓ gdu установлен" ; \
+    fi || echo "⚠ gdu: установка не удалась — пропуск"
+
 RUN mkdir -p /shares
 
 COPY entrypoint.sh /entrypoint.sh

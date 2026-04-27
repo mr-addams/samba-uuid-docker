@@ -3,6 +3,9 @@ set -e
 
 # ========================== Модуль entrypoint ==================================
 #   Точка входа контейнера samba-uuid-docker.
+#   Идемпотентен: повторный запуск внутри того же контейнера переиспользует
+#   уже смонтированные диски и перезапускает демоны без ошибок.
+#
 #   1. Воссоздаёт симлинки /dev/disk/by-uuid (udev внутри контейнера не работает)
 #   2. Проверяет, что каждый диск из DISK_<NAME>=<UUID> не смонтирован на хосте
 #   3. Монтирует диски эксклюзивно, запускает Samba + NFS
@@ -27,6 +30,7 @@ for dev in /dev/sd* /dev/nvme* /dev/vd* /dev/mmcblk*; do
     devices_found=$((devices_found + 1))
     uuid=$(blkid -s UUID -o value "$dev" 2>/dev/null)
     if [ -n "$uuid" ]; then
+        # ln -sf идемпотентен: перезаписывает существующий симлинк
         ln -sf "$dev" "/dev/disk/by-uuid/$uuid"
         log_success "Ссылка: /dev/disk/by-uuid/$uuid → $dev"
     fi
@@ -114,8 +118,16 @@ check_and_mount() {
 
     mkdir -p "$mountpoint"
 
+    # Идемпотентность: если диск уже смонтирован в нашу точку — переиспользуем.
+    # Это нормально при docker compose restart или повторном вызове entrypoint.
+    if mountpoint -q "$mountpoint" 2>/dev/null; then
+        log_success "Диск $share_name уже смонтирован в $mountpoint — переиспользуем"
+        return 0
+    fi
+
+    # Если смонтирован куда-то ещё (хост или другой путь) — это ошибка.
     if is_mounted_anywhere "$uuid"; then
-        log_error "Диск $uuid уже смонтирован на хосте — отказ!"
+        log_error "Диск $uuid смонтирован в другом месте — отказ!"
         return 1
     fi
     log_success "Диск не смонтирован"
@@ -225,12 +237,17 @@ printf '%s' "$exports_content" > /etc/exports
 log_debug "Содержимое /etc/exports:"
 cat /etc/exports
 
-# rc-service не работает в контейнере (OpenRC не инициализирован) — запускаем напрямую
-rpcbind -w 2>/dev/null || rpcbind || true
+# Идемпотентность: останавливаем предыдущие экземпляры перед перезапуском.
+# pkill возвращает 1 если процессов нет — это нормально, || true подавляет ошибку.
+pkill -x rpcbind   2>/dev/null || true
+pkill rpc.mountd   2>/dev/null || true
+pkill rpc.nfsd     2>/dev/null || true
 sleep 1
-rpc.mountd --no-nfs-version 2 2>&1
-rpc.nfsd 8 2>&1
-exportfs -ra 2>&1
+
+rpcbind -w 2>/dev/null || rpcbind
+rpc.mountd --no-nfs-version 2
+rpc.nfsd 8
+exportfs -ra
 log_success "NFS запущен"
 
 # ========================== Шаг 6: Samba =======================================
@@ -274,6 +291,11 @@ log_success "Samba настроена"
 # ========================== Шаг 7: Запуск сервисов ============================
 
 log "Шаг 7: Запуск Samba..."
+
+# Идемпотентность: останавливаем предыдущие экземпляры перед перезапуском.
+pkill smbd 2>/dev/null || true
+pkill nmbd 2>/dev/null || true
+sleep 1
 
 smbd --foreground --no-process-group &
 SMBD_PID=$!

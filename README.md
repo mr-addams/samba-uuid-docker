@@ -53,7 +53,7 @@ The container uses `privileged: true` and maps `/dev` from the host so it can se
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourname/samba-uuid-docker.git
+git clone https://github.com/mr-addams/samba-uuid-docker.git
 cd samba-uuid-docker
 ```
 
@@ -399,7 +399,7 @@ DISK_MEDIA=<uuid>              (udev внутри контейнера не ра
 ### 1. Клонировать репозиторий
 
 ```bash
-git clone https://github.com/yourname/samba-uuid-docker.git
+git clone https://github.com/mr-addams/samba-uuid-docker.git
 cd samba-uuid-docker
 ```
 

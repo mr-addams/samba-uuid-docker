@@ -16,6 +16,9 @@ RUN apk add --no-cache \
     findutils \
     curl
 
+# Переключаем шелл сборки на bash — все последующие RUN выполняются в bash
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
 # duf отсутствует в Alpine-репозитории — устанавливаем свежий .apk прямо из GitHub Releases.
 # Версия определяется динамически через API: всегда ставится последний релиз.
 # Неизвестная архитектура или сбой загрузки не ломают сборку (|| true в конце).
@@ -73,6 +76,9 @@ RUN ARCH=$(uname -m) \
         && gdu --version \
         && echo "✓ gdu установлен" ; \
     fi || echo "⚠ gdu: установка не удалась — пропуск"
+
+# Меняем дефолтный шелл рута с /bin/ash на bash — работает в docker exec и интерактивных сессиях
+RUN sed -i 's|^\(root:.*:\)/bin/sh$|\1/bin/bash|' /etc/passwd
 
 RUN mkdir -p /shares
 

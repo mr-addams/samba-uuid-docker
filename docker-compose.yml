@@ -1,0 +1,19 @@
+services:
+  samba-nfs:
+    build: .
+    container_name: samba-nfs-exclusive
+    privileged: true
+    devices:
+      - /dev:/dev
+    ports:
+      - "445:445"
+      - "139:139"
+      - "2049:2049"
+      - "111:111"
+    env_file:
+      - deploy.env
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+
+

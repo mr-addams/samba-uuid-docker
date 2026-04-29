@@ -1,5 +1,9 @@
 FROM alpine:3.21
 
+# Версии diagnostic tools: можно переопределить при сборке через --build-arg
+ARG DUF_VERSION=0.9.1
+ARG GDU_VERSION=5.36.1
+
 RUN apk add --no-cache \
     bash \
     samba \
@@ -19,8 +23,9 @@ RUN apk add --no-cache \
 # Переключаем шелл сборки на bash — все последующие RUN выполняются в bash
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-# duf отсутствует в Alpine-репозитории — устанавливаем свежий .apk прямо из GitHub Releases.
-# Версия определяется динамически через API: всегда ставится последний релиз.
+# duf отсутствует в Alpine-репозитории — устанавливаем .apk прямо из GitHub Releases.
+# Версия фиксирована через ARG (воспроизводимость), но может быть переопределена при сборке:
+#   docker build --build-arg DUF_VERSION=0.10.0 .
 # Неизвестная архитектура или сбой загрузки не ломают сборку (|| true в конце).
 RUN ARCH=$(uname -m) \
     && case "$ARCH" in \
@@ -34,9 +39,7 @@ RUN ARCH=$(uname -m) \
     && if [ -z "$DUF_ARCH" ]; then \
         echo "⚠ duf: архитектура $ARCH не поддерживается — пропуск" ; \
     else \
-        DUF_VERSION=$(curl -fsSL https://api.github.com/repos/muesli/duf/releases/latest \
-            | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/') \
-        && echo "Последняя версия duf: $DUF_VERSION" \
+        echo "Установка duf версия $DUF_VERSION" \
         && DUF_FILE="duf_${DUF_VERSION}_linux_${DUF_ARCH}.apk" \
         && DUF_URL="https://github.com/muesli/duf/releases/download/v${DUF_VERSION}/${DUF_FILE}" \
         && echo "Загрузка duf ($ARCH → $DUF_ARCH): $DUF_URL" \
@@ -51,6 +54,8 @@ RUN ARCH=$(uname -m) \
 # Alpine использует musl libc — нужна статически слинкованная сборка.
 # Для amd64 релиз явно помечен суффиксом _static; остальные арки кросс-компилируются
 # без CGO и по умолчанию статически слинкованы.
+# Версия фиксирована через ARG (воспроизводимость), переопределяется через --build-arg:
+#   docker build --build-arg GDU_VERSION=5.37.0 .
 RUN ARCH=$(uname -m) \
     && case "$ARCH" in \
         x86_64)    GDU_ARCH="amd64_static" ;; \
@@ -63,9 +68,7 @@ RUN ARCH=$(uname -m) \
     && if [ -z "$GDU_ARCH" ]; then \
         echo "⚠ gdu: архитектура $ARCH не поддерживается — пропуск" ; \
     else \
-        GDU_VERSION=$(curl -fsSL https://api.github.com/repos/dundee/gdu/releases/latest \
-            | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/') \
-        && echo "Последняя версия gdu: $GDU_VERSION" \
+        echo "Установка gdu версия $GDU_VERSION" \
         && GDU_FILE="gdu_linux_${GDU_ARCH}.tgz" \
         && GDU_URL="https://github.com/dundee/gdu/releases/download/v${GDU_VERSION}/${GDU_FILE}" \
         && echo "Загрузка gdu ($ARCH → $GDU_ARCH): $GDU_URL" \

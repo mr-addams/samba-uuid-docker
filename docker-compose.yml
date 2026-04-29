@@ -2,12 +2,12 @@ services:
   samba-nfs:
     build: .
     container_name: samba-nfs-exclusive
-    # privileged: true и devices: /dev:/dev необходимы для:
-    # - монтирования реальных блочных устройств хоста (mount -t ext4 /dev/sdX /shares/...)
-    # - загрузки модулей ядра (modprobe nfsd, rpc.nfsd, rpc.mountd)
-    # - доступа к /dev/disk/by-uuid для поиска дисков по UUID
-    # ⚠️ РИСК: компрометация контейнера равна компрометации хоста. Используйте только
-    # в доверенной сетевой среде.
+    # privileged: true and devices: /dev:/dev are required for:
+    # - mounting real host block devices (mount -t ext4 /dev/sdX /shares/...)
+    # - loading kernel modules (modprobe nfsd, rpc.nfsd, rpc.mountd)
+    # - accessing /dev/disk/by-uuid to discover disks by UUID
+    # ⚠️ RISK: container compromise equals host compromise. Use only
+    # in a trusted network environment.
     privileged: true
     devices:
       - /dev:/dev

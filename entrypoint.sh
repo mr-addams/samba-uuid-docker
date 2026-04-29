@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # ========================== Модуль entrypoint ==================================
 #   Точка входа контейнера samba-uuid-docker.
@@ -51,27 +51,24 @@ FORCE_USER=${FORCE_USER:-root}
 # ========================== Шаг 3: Разбор DISK_* ==============================
 
 log "Шаг 3: Поиск дисков в переменных окружения..."
-DISKS=""
-SHARE_NAMES=""
+
+# Используем bash-массивы вместо word splitting для надёжной обработки имён.
+# Итерируем через ${!DISK_@} — подстановка всех переменных, начинающихся с DISK_.
+declare -a DISK_UUIDS
+declare -a DISK_NAMES
 disk_count=0
 
-for var in $(env | grep '^DISK_'); do
-    name=$(echo "$var" | cut -d'=' -f1 | sed 's/^DISK_//')
-    uuid=$(echo "$var" | cut -d'=' -f2-)
+for var in "${!DISK_@}"; do
+    name="${var#DISK_}"  # Убираем префикс DISK_
+    uuid="${!var}"       # Косвенное расширение: ${!var} = значение переменной с именем $var
     [ -z "$uuid" ] && continue
     disk_count=$((disk_count + 1))
-    # Без ведущего пробела — иначе cut -d' ' -f1 вернёт пустую строку для первого элемента
-    if [ -z "$DISKS" ]; then
-        DISKS="$uuid"
-        SHARE_NAMES="$name"
-    else
-        DISKS="$DISKS $uuid"
-        SHARE_NAMES="$SHARE_NAMES $name"
-    fi
+    DISK_UUIDS+=("$uuid")
+    DISK_NAMES+=("$name")
     log_success "Диск #$disk_count: $name → UUID $uuid"
 done
 
-if [ -z "$DISKS" ]; then
+if [ $disk_count -eq 0 ]; then
     log_error "Не найдено ни одного DISK_xxx в переменных окружения!"
     log_error "Проверьте файл deploy.env"
     env | grep -E '^(DISK_|WORKGROUP|SERVER)' || true
@@ -143,7 +140,7 @@ check_and_mount() {
     log "Тип файловой системы: $fs_type"
 
     # e2fsck только для ext2/3/4
-    if echo "$fs_type" | grep -qE '^ext[234]$'; then
+    if [[ "$fs_type" =~ ^ext[234]$ ]]; then
         log "Проверка файловой системы (e2fsck)..."
         if ! e2fsck -n -f "$dev" >/dev/null 2>&1; then
             log "Обнаружены ошибки → автоматический ремонт..."
@@ -178,19 +175,24 @@ cleanup() {
     log "========================================="
     log "Получен сигнал остановки — размонтирование..."
     log "========================================="
-    for name in $SHARE_NAMES; do
+    for i in "${!DISK_NAMES[@]}"; do
+        name="${DISK_NAMES[$i]}"
         mp="/shares/$name"
         mountpoint -q "$mp" 2>/dev/null || continue
         log "→ Sync + umount $mp..."
         sync
+        # Избегаем антипаттерна A && B || C: используем явный if/else.
+        # Это предотвращает ложную ошибку, если log_success неожиданно упадёт.
         if umount "$mp" 2>/dev/null; then
             log_success "$name размонтирован"
         elif umount -f "$mp" 2>/dev/null; then
             log_success "$name размонтирован с -f"
         else
-            umount -l "$mp" 2>/dev/null \
-                && log_success "$name: lazy unmount" \
-                || log_error "Не удалось размонтировать $name"
+            if umount -l "$mp" 2>/dev/null; then
+                log_success "$name: lazy unmount"
+            else
+                log_error "Не удалось размонтировать $name"
+            fi
         fi
     done
     log "Завершение."
@@ -205,15 +207,15 @@ log ""
 log "========================================="
 log "МОНТИРОВАНИЕ ДИСКОВ (всего: $disk_count)"
 log "========================================="
-i=1
-for uuid in $DISKS; do
-    name=$(echo "$SHARE_NAMES" | tr -s ' ' | cut -d' ' -f$i)
-    log ">>> Диск #$i: $name"
+
+for i in "${!DISK_UUIDS[@]}"; do
+    uuid="${DISK_UUIDS[$i]}"
+    name="${DISK_NAMES[$i]}"
+    log ">>> Диск #$((i + 1)): $name"
     if ! check_and_mount "$uuid" "$name"; then
         log_error "Критическая ошибка с диском $name (UUID: $uuid)"
         exit 1
     fi
-    i=$((i + 1))
 done
 
 log_success "Все диски смонтированы"
@@ -228,7 +230,8 @@ mount -t nfsd nfsd /proc/fs/nfsd 2>/dev/null || true
 
 # Генерируем /etc/exports без вложенных heredoc
 exports_content=""
-for name in $SHARE_NAMES; do
+for i in "${!DISK_NAMES[@]}"; do
+    name="${DISK_NAMES[$i]}"
     mp="/shares/$name"
     mountpoint -q "$mp" 2>/dev/null || continue
     exports_content="${exports_content}${mp} *(rw,sync,no_subtree_check,no_root_squash,insecure)
@@ -258,7 +261,8 @@ log "Шаг 6: Настройка Samba..."
 # Вложенный heredoc (<< EOD внутри $(...) внутри << EOF) ненадёжен в busybox sh —
 # генерируем секции шар в переменную, затем вставляем в основной heredoc.
 shares_config=""
-for name in $SHARE_NAMES; do
+for i in "${!DISK_NAMES[@]}"; do
+    name="${DISK_NAMES[$i]}"
     mp="/shares/$name"
     mountpoint -q "$mp" 2>/dev/null || continue
     shares_config="${shares_config}
@@ -308,8 +312,14 @@ log_success "nmbd запущен (PID: $NMBD_PID)"
 
 log_success "========================================="
 log_success "=== СЕРВЕР ЗАПУЩЕН ==="
-log_success "Шары: $SHARE_NAMES"
+log_success "Шары: ${DISK_NAMES[*]}"
 log_success "========================================="
 
-# wait сохраняет trap — exec sleep infinity заменил бы процесс и потерял cleanup
-wait $SMBD_PID $NMBD_PID
+# ========================== Guard: wait с обработкой ошибок ====================
+
+# wait с guard-логикой: если демон упадёт, cleanup срабатывает корректно.
+# Без этого крэш smbd убивал бы цепочку размонтирования на хосте.
+if ! wait $SMBD_PID $NMBD_PID; then
+    log_error "Один из демонов завершился с ошибкой. Запуск cleanup..."
+    cleanup
+fi

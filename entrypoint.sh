@@ -118,13 +118,16 @@ check_and_mount() {
 
     # Idempotency: if disk is already mounted at our mount point — reuse it.
     # This is normal during docker compose restart or re-running entrypoint.
-    if mountpoint -q "$mountpoint" 2>/dev/null; then
+    # Use findmnt directly instead of mountpoint + is_mounted_anywhere to avoid race.
+    if findmnt -r "$mountpoint" >/dev/null 2>&1; then
         log_success "Disk $share_name already mounted at $mountpoint — reusing"
         return 0
     fi
 
     # If mounted elsewhere (on host or different path) — this is an error.
-    if is_mounted_anywhere "$uuid"; then
+    # Resolve symlink and check.
+    real_dev=$(readlink -f "/dev/disk/by-uuid/$uuid" 2>/dev/null) || real_dev="/dev/disk/by-uuid/$uuid"
+    if findmnt -rno SOURCE 2>/dev/null | grep -qF "$real_dev"; then
         log_error "Disk $uuid mounted elsewhere — refusing!"
         return 1
     fi
@@ -200,6 +203,7 @@ cleanup() {
 }
 
 trap cleanup SIGTERM SIGINT SIGQUIT
+trap '' SIGPIPE  # SIGPIPE не должен прерывать entrypoint
 
 # ========================== Step 4: Mounting ====================================
 
@@ -249,7 +253,7 @@ pkill rpc.nfsd     2>/dev/null || true
 sleep 1
 
 rpcbind -w 2>/dev/null || rpcbind
-rpc.mountd --no-nfs-version 2
+rpc.mountd --no-nfs-version 2 -p 892  # Fixed port for predictable exposure
 rpc.nfsd 8
 exportfs -ra
 log_success "NFS started"
@@ -297,9 +301,15 @@ log_success "Samba configured"
 
 log "Step 7: Starting Samba..."
 
-# Idempotency: stop previous instances before restart.
-pkill smbd 2>/dev/null || true
-pkill nmbd 2>/dev/null || true
+# Idempotency: check if already running, stop previous instances before restart.
+if pgrep -x smbd >/dev/null 2>&1; then
+    log "smbd already running — stopping old instance first"
+    pkill smbd 2>/dev/null || true
+fi
+if pgrep -x nmbd >/dev/null 2>&1; then
+    log "nmbd already running — stopping old instance first"
+    pkill nmbd 2>/dev/null || true
+fi
 sleep 1
 
 smbd --foreground --no-process-group &
@@ -317,9 +327,21 @@ log_success "========================================="
 
 # ========================== Guard: wait with error handling =====================
 
-# wait with guard logic: if daemon crashes, cleanup runs correctly.
-# Without this smbd crash would break unmounting chain on host.
-if ! wait $SMBD_PID $NMBD_PID; then
-    log_error "One of daemons exited with error. Running cleanup..."
-    cleanup
-fi
+# Monitor daemons in background. Only smbd death is critical (NFS needs it).
+# nmbd can exit for benign reasons (interface binding retries).
+# If smbd dies → cleanup. If nmbd dies alone → log warning but keep running.
+monitor_daemons() {
+    while true; do
+        if ! kill -0 $SMBD_PID 2>/dev/null; then
+            log_error "smbd (PID $SMBD_PID) died. Running cleanup..."
+            cleanup
+        fi
+        if ! kill -0 $NMBD_PID 2>/dev/null; then
+            log_debug "nmbd (PID $NMBD_PID) died — NFS/netbios may be affected"
+        fi
+        sleep 5
+    done
+}
+monitor_daemons &
+MONITOR_PID=$!
+

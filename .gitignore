@@ -3,3 +3,22 @@
 *.swo
 *~
 .DS_Store
+
+# Environment files (contain real UUIDs)
+deploy.env
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Build artifacts
+*.apk
+*.tgz
+
+# Логи
+*.log
+
+# Git
+.git/

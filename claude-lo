@@ -11,9 +11,30 @@ CLAUDE_MODEL="${CLAUDE_MODEL:-DeepSeek-v4-Flash-Cloud:latest}"
 
 selected=""
 
+# Проверка зависимостей
+for cmd in jq claude; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo "❌ $cmd не найден в PATH. Установи его перед запуском."
+        exit 1
+    fi
+done
+
+# Определение поддержки цветов в терминале
+if [ -t 1 ] && [ -n "${TERM:-}" ] && [ "$TERM" != "dumb" ]; then
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    MAGENTA='\033[1;35m'
+    RESET='\033[0m'
+else
+    GREEN=''
+    YELLOW=''
+    MAGENTA=''
+    RESET=''
+fi
+
 # Проверка доступности Ollama перед запуском
 echo "🔍 Проверяю ${OLLAMA_HOST}..."
-if ! curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+if ! curl -sf --connect-timeout 5 --max-time 15 "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
     echo "❌ Ollama недоступна по адресу ${OLLAMA_HOST}"
     echo "   Проверьте, запущен ли сервер, или укажите OLLAMA_HOST=<url>"
     exit 1
@@ -21,13 +42,10 @@ fi
 
 # Получаем список моделей
 echo "📦 Загружаю список моделей..."
-models_json=$(curl -sf "${OLLAMA_HOST}/api/tags")
+models_json=$(curl -sf --connect-timeout 5 --max-time 15 "${OLLAMA_HOST}/api/tags")
 
-# Извлекаем имена моделей (name:tag), сортируем
-mapfile -t MODELS < <(echo "$models_json" \
-    | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
-    | sed 's/"name"\s*:\s*"//;s/"//' \
-    | sort)
+# Извлекаем имена моделей через jq, сортируем
+mapfile -t MODELS < <(echo "$models_json" | jq -r '.models[].name' | sort)
 
 if [ ${#MODELS[@]} -eq 0 ]; then
     echo "❌ На сервере нет доступных моделей"
@@ -36,7 +54,7 @@ fi
 
 # Проверяем, есть ли дефолтная модель в списке
 default_available=false
-default_idx=0
+default_idx=-1
 for i in "${!MODELS[@]}"; do
     if [ "${MODELS[$i]}" = "$CLAUDE_MODEL" ]; then
         default_available=true
@@ -49,10 +67,11 @@ echo ""
 echo "Доступные модели:"
 echo "─────────────────"
 for i in "${!MODELS[@]}"; do
+    num=$((i + 1))
     if [ "$i" -eq "$default_idx" ] && [ "$default_available" = true ]; then
-        printf "  %2d) %s  ← default\n" $((i + 1)) "${MODELS[$i]}"
+        printf "  ${YELLOW}%3d)${RESET} ${MAGENTA}%s${RESET}  ← default\n" "$num" "${MODELS[$i]}"
     else
-        printf "  %2d) %s\n" $((i + 1)) "${MODELS[$i]}"
+        printf "  ${YELLOW}%3d)${RESET} ${GREEN}%s${RESET}\n" "$num" "${MODELS[$i]}"
     fi
 done
 echo ""

@@ -9,14 +9,87 @@ set -euo pipefail
 OLLAMA_HOST="${OLLAMA_HOST:-http://10.99.99.50:11434}"
 CLAUDE_MODEL="${CLAUDE_MODEL:-DeepSeek-v4-Flash-Cloud:latest}"
 
+selected=""
+
 # Проверка доступности Ollama перед запуском
+echo "🔍 Проверяю ${OLLAMA_HOST}..."
 if ! curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
     echo "❌ Ollama недоступна по адресу ${OLLAMA_HOST}"
     echo "   Проверьте, запущен ли сервер, или укажите OLLAMA_HOST=<url>"
     exit 1
 fi
 
+# Получаем список моделей
+echo "📦 Загружаю список моделей..."
+models_json=$(curl -sf "${OLLAMA_HOST}/api/tags")
+
+# Извлекаем имена моделей (name:tag), сортируем
+mapfile -t MODELS < <(echo "$models_json" \
+    | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+    | sed 's/"name"\s*:\s*"//;s/"//' \
+    | sort)
+
+if [ ${#MODELS[@]} -eq 0 ]; then
+    echo "❌ На сервере нет доступных моделей"
+    exit 1
+fi
+
+# Проверяем, есть ли дефолтная модель в списке
+default_available=false
+default_idx=0
+for i in "${!MODELS[@]}"; do
+    if [ "${MODELS[$i]}" = "$CLAUDE_MODEL" ]; then
+        default_available=true
+        default_idx=$i
+        break
+    fi
+done
+
+echo ""
+echo "Доступные модели:"
+echo "─────────────────"
+for i in "${!MODELS[@]}"; do
+    if [ "$i" -eq "$default_idx" ] && [ "$default_available" = true ]; then
+        printf "  %2d) %s  ← default\n" $((i + 1)) "${MODELS[$i]}"
+    else
+        printf "  %2d) %s\n" $((i + 1)) "${MODELS[$i]}"
+    fi
+done
+echo ""
+
+# Выбор модели
+if [ "$default_available" = true ]; then
+    # Дефолтная модель доступна — можно выбрать или нажать Enter
+    read -r -p "Выбери модель [1-${#MODELS[@]}] (Enter = ${CLAUDE_MODEL}): " choice
+    if [ -z "$choice" ]; then
+        selected="$CLAUDE_MODEL"
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#MODELS[@]}" ]; then
+        selected="${MODELS[$((choice - 1))]}"
+    else
+        echo "❌ Некорректный выбор"
+        exit 1
+    fi
+else
+    # Дефолтная модель недоступна — нужен явный выбор
+    echo "⚠️  Модель по умолчанию (${CLAUDE_MODEL}) недоступна на сервере."
+    echo "   Выбери модель из списка для продолжения."
+    echo ""
+    while true; do
+        read -r -p "Выбери модель [1-${#MODELS[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#MODELS[@]}" ]; then
+            selected="${MODELS[$((choice - 1))]}"
+            break
+        else
+            echo "❌ Некорректный выбор. Введи номер от 1 до ${#MODELS[@]}."
+        fi
+    done
+fi
+
+echo ""
+echo "🚀 Запускаю Claude Code с моделью: ${selected}"
+echo ""
+
 ANTHROPIC_AUTH_TOKEN=ollama \
 ANTHROPIC_BASE_URL="${OLLAMA_HOST}" \
 ANTHROPIC_API_KEY="" \
-claude --model "${CLAUDE_MODEL}"
+claude --model "${selected}"

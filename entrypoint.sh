@@ -62,6 +62,14 @@ for var in "${!DISK_@}"; do
     name="${var#DISK_}"  # Remove DISK_ prefix
     uuid="${!var}"       # Indirect expansion: ${!var} = value of variable named $var
     [ -z "$uuid" ] && continue
+
+    # Валидация имени шары: только латиница, цифры, подчёркивание, дефис.
+    # Некорректное имя приведёт к сломанному smb.conf ([name]) или пути монтирования.
+    if ! [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || [[ "$name" =~ ^- ]]; then
+        log_error "Invalid share name '$name' in $var — use only [a-zA-Z0-9_-], must not start with '-'"
+        exit 1
+    fi
+
     disk_count=$((disk_count + 1))
     DISK_UUIDS+=("$uuid")
     DISK_NAMES+=("$name")
@@ -173,11 +181,25 @@ check_and_mount() {
 
 # ========================== Cleanup: unmounting ================================
 
+CLEANUP_DONE=0
+
 cleanup() {
+    [ "$CLEANUP_DONE" -eq 1 ] && return
+    CLEANUP_DONE=1
+
     log ""
     log "========================================="
     log "Stop signal received — unmounting..."
     log "========================================="
+
+    # Сначала останавливаем smbd/nmbd — они могут держать файлы открытыми.
+    # Если не остановить их до umount, размонтирование может завершиться ошибкой.
+    log "→ Stopping smbd..."
+    pkill smbd 2>/dev/null || true
+    log "→ Stopping nmbd..."
+    pkill nmbd 2>/dev/null || true
+    sleep 1
+
     for i in "${!DISK_NAMES[@]}"; do
         name="${DISK_NAMES[$i]}"
         mp="/shares/$name"
@@ -343,5 +365,11 @@ monitor_daemons() {
     done
 }
 monitor_daemons &
+# shellcheck disable=SC2034
 MONITOR_PID=$!
+
+# Ждём завершения любого дочернего процесса.
+# Без wait контейнер завершится сразу после запуска — PID 1 (bash) дойдёт до конца
+# и exit 0. wait держит контейнер живым, пока работает хотя бы один фоновый процесс.
+wait
 

@@ -183,6 +183,7 @@ The container requires:
 | 139 | TCP | Samba (NetBIOS session) |
 | 2049 | TCP/UDP | NFS |
 | 111 | TCP/UDP | rpcbind (NFS portmapper) |
+| 892 | TCP/UDP | rpc.mountd (NFS mount protocol) |
 
 ---
 
@@ -530,6 +531,7 @@ IP_СЕРВЕРА:/shares/ARCHIVE  /mnt/archive  nfs  defaults,_netdev  0  0
 | 139 | TCP | Samba (NetBIOS-сессия) |
 | 2049 | TCP/UDP | NFS |
 | 111 | TCP/UDP | rpcbind (NFS portmapper) |
+| 892 | TCP/UDP | rpc.mountd (NFS mount protocol) |
 
 ---
 

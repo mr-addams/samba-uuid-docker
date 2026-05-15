@@ -1,0 +1,22 @@
+#!/bin/bash
+set -euo pipefail
+
+# Запуск Claude Code с локальной Ollama.
+# Переменные окружения (с дефолтами):
+#   OLLAMA_HOST  — адрес Ollama (по умолчанию http://10.99.99.50:11434)
+#   CLAUDE_MODEL — модель Claude (по умолчанию DeepSeek-v4-Flash-Cloud:latest)
+
+OLLAMA_HOST="${OLLAMA_HOST:-http://10.99.99.50:11434}"
+CLAUDE_MODEL="${CLAUDE_MODEL:-DeepSeek-v4-Flash-Cloud:latest}"
+
+# Проверка доступности Ollama перед запуском
+if ! curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+    echo "❌ Ollama недоступна по адресу ${OLLAMA_HOST}"
+    echo "   Проверьте, запущен ли сервер, или укажите OLLAMA_HOST=<url>"
+    exit 1
+fi
+
+ANTHROPIC_AUTH_TOKEN=ollama \
+ANTHROPIC_BASE_URL="${OLLAMA_HOST}" \
+ANTHROPIC_API_KEY="" \
+claude --model "${CLAUDE_MODEL}"

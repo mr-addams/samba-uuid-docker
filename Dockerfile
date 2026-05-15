@@ -1,5 +1,10 @@
 FROM alpine:3.21
 
+LABEL org.opencontainers.image.title="samba-uuid-docker" \
+      org.opencontainers.image.description="Exclusive host disk mounting by UUID with Samba+NFS sharing" \
+      org.opencontainers.image.source="https://github.com/mr-addams/samba-uuid-docker" \
+      org.opencontainers.image.licenses="MIT"
+
 # Versions of diagnostic tools: can be overridden during build via --build-arg
 ARG DUF_VERSION=0.9.1
 ARG GDU_VERSION=5.36.1
@@ -70,6 +75,9 @@ RUN mkdir -p /shares
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 2049 111 139 445
+EXPOSE 2049 111 139 445 892
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD smbclient -L //localhost -N >/dev/null 2>&1 || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
